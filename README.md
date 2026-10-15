@@ -20,7 +20,7 @@ pip install y2cli
 Or install from source:
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/y2cli
+git clone https://github.com/Tresorbana/y2cli
 cd y2cli
 pip install -e .
 ```
@@ -67,8 +67,8 @@ When running `y2cli --serve` (default port `7272`):
 
 ## Related Projects
 
-- [y2cli-vscode](https://github.com/YOUR_USERNAME/y2cli-vscode) — VS Code extension
-- [y2cli-browser](https://github.com/YOUR_USERNAME/y2cli-browser) — Chrome/Firefox browser extension
+- [y2cli-vscode](https://github.com/Tresorbana/y2cli-vscode) — VS Code extension
+- [y2cli-browser](https://github.com/Tresorbana/y2cli-browser) — Chrome/Firefox browser extension
 
 ## License
 
