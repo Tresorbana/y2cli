@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "y2cli"
-version = "1.1.0"
+version = "1.1.1"
 description = "Offline YouTube downloader CLI — like Y2Mate, no browser needed"
 requires-python = ">=3.10"
 readme = "README.md"
