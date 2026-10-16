@@ -18,9 +18,6 @@ import sys
 import sys
 from rich.console import Console
 from rich.panel import Panel
-from rich.prompt import Prompt
-from rich.table import Table
-from rich import box
 
 from y2cli import __version__
 from y2cli.downloader import fetch_info, build_formats, download
@@ -62,6 +59,9 @@ def _make_json_hook():
 
 
 def _pick_format_interactive(info: dict, choices: list[dict]) -> dict:
+    import questionary
+    from questionary import Style
+
     title    = info.get("title", "Unknown")
     uploader = info.get("uploader", "?")
     duration = info.get("duration_string") or str(info.get("duration", "?"))
@@ -72,19 +72,27 @@ def _pick_format_interactive(info: dict, choices: list[dict]) -> dict:
         border_style="green",
     ))
 
-    tbl = Table(box=box.ROUNDED, header_style="bold magenta")
-    tbl.add_column("#", style="dim", width=4)
-    tbl.add_column("Format", min_width=22)
-    tbl.add_column("Type", width=8)
-    for i, c in enumerate(choices, 1):
-        tbl.add_row(str(i), c["label"], c["type"])
-    console.print(tbl)
+    style = Style([
+        ("qmark",        "fg:#10b981 bold"),
+        ("question",     "bold"),
+        ("answer",       "fg:#10b981 bold"),
+        ("pointer",      "fg:#10b981 bold"),
+        ("highlighted",  "fg:#10b981 bold"),
+        ("selected",     "fg:#10b981"),
+    ])
 
-    while True:
-        raw = Prompt.ask("[bold yellow]Choose format[/]", default="1")
-        if raw.isdigit() and 1 <= int(raw) <= len(choices):
-            return choices[int(raw) - 1]
-        console.print("[red]Invalid choice, try again.[/]")
+    label = questionary.select(
+        "Choose format:",
+        choices=[c["label"] for c in choices],
+        style=style,
+        use_shortcuts=False,
+    ).ask()
+
+    if label is None:
+        console.print("[red]Cancelled.[/]")
+        sys.exit(0)
+
+    return next(c for c in choices if c["label"] == label)
 
 
 # ── main ─────────────────────────────────────────────────────────────────────
