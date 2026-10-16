@@ -8,7 +8,7 @@ def get_ffmpeg() -> str:
 
 
 def fetch_info(url: str) -> dict:
-    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
 
@@ -44,6 +44,7 @@ def download(url: str, fmt: dict, output_dir: str, progress_hook=None) -> None:
         "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
+        "noplaylist": True,
         "ffmpeg_location": get_ffmpeg(),
     }
     if progress_hook:
