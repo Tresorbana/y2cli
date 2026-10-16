@@ -1,15 +1,10 @@
 # y2cli
 
-Offline YouTube downloader CLI — works exactly like Y2Mate but runs on your machine with no browser needed. Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) with **ffmpeg bundled** via [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg) (no separate ffmpeg install required).
+**Download YouTube videos and audio from your terminal — no browser, no ads, no limits.**
 
-## Features
+Powered by [yt-dlp](https://github.com/yt-dlp/yt-dlp) with **ffmpeg bundled** (nothing extra to install). Just `pip install` and go.
 
-- Download YouTube videos as MP4 (1080p, 720p, 480p, 360p, and more)
-- Download audio as MP3
-- Interactive format picker (like Y2Mate's UI, in the terminal)
-- Built-in ffmpeg — no manual setup
-- Local HTTP server mode for the VS Code and browser extensions
-- JSON output mode for programmatic use
+---
 
 ## Install
 
@@ -17,59 +12,95 @@ Offline YouTube downloader CLI — works exactly like Y2Mate but runs on your ma
 pip install y2cli
 ```
 
-Or install from source:
+Requires Python 3.10+. Works on Windows, macOS, and Linux.
 
-```bash
-git clone https://github.com/Tresorbana/y2cli
-cd y2cli
-pip install -e .
+---
+
+## Quick Start
+
+Run `y2cli` and it will ask you for everything:
+
 ```
+y2cli
+```
+
+You'll be prompted for a YouTube URL, then shown an arrow-key menu to pick your format:
+
+```
+? Choose format:
+  > MP3 (audio only)
+    MP4 1080p
+    MP4 720p
+    MP4 480p
+    MP4 360p
+```
+
+That's it. The file saves to `~/Downloads/y2cli/` when done.
+
+---
 
 ## Usage
 
 ```bash
-# Interactive — prompts for URL and format
+# Fully interactive (recommended)
 y2cli
 
-# Pass URL directly, pick format interactively
+# Pass a URL, then pick format from the menu
 y2cli "https://www.youtube.com/watch?v=VIDEO_ID"
 
-# Direct download, no prompts
-y2cli "https://..." --format mp4_720
-y2cli "https://..." --format mp3
+# Skip the menu — download directly
+y2cli "https://www.youtube.com/watch?v=VIDEO_ID" --format mp4_720
+y2cli "https://www.youtube.com/watch?v=VIDEO_ID" --format mp3
 
-# Available format IDs
-# mp3, mp4_1080, mp4_720, mp4_480, mp4_360  (depends on video)
+# Save to a custom folder
+y2cli "https://..." --format mp4_720 --output ~/Videos
 
-# Custom output directory
-y2cli "https://..." --format mp4_720 --output "C:\Users\You\Videos"
-
-# Get video info as JSON (used by extensions)
+# See what formats are available for a video (JSON)
 y2cli "https://..." --info
-
-# Start local HTTP server (for VS Code / browser extensions)
-y2cli --serve
-y2cli --serve --port 8080
 ```
 
-Downloads save to `~/Downloads/y2cli/` by default.
+### Format IDs
 
-## HTTP Server API
+| ID | Description |
+|----|-------------|
+| `mp3` | Audio only (192 kbps MP3) |
+| `mp4_1080` | Video 1080p |
+| `mp4_720` | Video 720p |
+| `mp4_480` | Video 480p |
+| `mp4_360` | Video 360p |
 
-When running `y2cli --serve` (default port `7272`):
+Available resolutions depend on what the video offers. The interactive menu only shows what's actually available.
+
+---
+
+## Features
+
+- No ffmpeg install needed — it's bundled
+- Arrow-key format picker so you never have to remember IDs
+- MP3 and MP4 support with automatic merging
+- Clean progress display in the terminal
+- Saves to `~/Downloads/y2cli/` by default
+
+---
+
+## HTTP Server (for developers)
+
+You can run y2cli as a local HTTP server for use in your own scripts or tools:
+
+```bash
+y2cli --serve          # starts on port 7272
+y2cli --serve --port 8080
+```
 
 | Method | Endpoint | Body | Description |
 |--------|----------|------|-------------|
 | GET | `/ping` | — | Health check |
-| POST | `/info` | `{"url": "..."}` | Get video info + formats |
-| POST | `/download` | `{"url": "...", "format_id": "mp4_720"}` | Start download, returns `job_id` |
+| POST | `/info` | `{"url": "..."}` | Get video info and available formats |
+| POST | `/download` | `{"url": "...", "format_id": "mp4_720"}` | Start a download, returns `job_id` |
 | GET | `/progress?job_id=...` | — | Poll download progress |
 
-## Related Projects
-
-- [y2cli-vscode](https://github.com/Tresorbana/y2cli-vscode) — VS Code extension
-- [y2cli-browser](https://github.com/Tresorbana/y2cli-browser) — Chrome/Firefox browser extension
+---
 
 ## License
 
-MIT
+MIT — free to use, modify, and distribute.
