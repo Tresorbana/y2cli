@@ -20,7 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from y2cli import __version__
-from y2cli.downloader import fetch_info, build_formats, download
+from y2cli.downloader import fetch_info_auto, build_formats, download, _is_bot_error, BROWSERS
 
 # Only emit color codes when connected to a real terminal
 console = Console(force_terminal=sys.stdout.isatty())
@@ -32,12 +32,18 @@ DEFAULT_DIR = os.path.join(os.path.expanduser("~"), "Downloads", "y2cli")
 def _make_rich_hook():
     def hook(d):
         if d["status"] == "downloading":
+            info = d.get("info_dict", {})
+            is_audio = info.get("vcodec", "none") == "none"
+            label = "[yellow]Audio[/]" if is_audio else "[cyan]Video[/]"
             pct   = d.get("_percent_str", "?").strip()
             speed = d.get("_speed_str",   "?").strip()
             eta   = d.get("_eta_str",     "?").strip()
-            console.print(f"  [cyan]{pct}[/]  speed: {speed}  eta: {eta}      ", end="\r")
+            console.print(f"  {label} {pct}  speed: {speed}  eta: {eta}      ", end="\r")
         elif d["status"] == "finished":
-            console.print("\n[green]Processing…[/]")
+            info = d.get("info_dict", {})
+            is_audio = info.get("vcodec", "none") == "none"
+            label = "Audio" if is_audio else "Video"
+            console.print(f"\n[green]✓ {label} downloaded[/]")
     return hook
 
 
@@ -132,7 +138,9 @@ def main():
         console.print("[dim]Fetching video info…[/]")
     try:
         import yt_dlp
-        info = fetch_info(url)
+        info, browser = fetch_info_auto(url)
+        if browser and not args.json:
+            console.print(f"[dim]Using {browser} cookies to bypass YouTube verification.[/]")
     except yt_dlp.utils.DownloadError as e:
         if args.json:
             print(json.dumps({"type": "error", "message": str(e)}), flush=True)
@@ -176,13 +184,26 @@ def main():
 
     try:
         import yt_dlp
-        download(url, selected, args.output, progress_hook=hook)
+        download(url, selected, args.output, progress_hook=hook, browser=browser)
     except yt_dlp.utils.DownloadError as e:
-        if args.json:
-            print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+        if _is_bot_error(e) and not browser:
+            if not args.json:
+                console.print("[yellow]YouTube blocked the request. Retrying with browser cookies…[/]")
+            for b in BROWSERS:
+                try:
+                    download(url, selected, args.output, progress_hook=hook, browser=b)
+                    break
+                except Exception:
+                    continue
+            else:
+                console.print("[red]Download failed:[/] YouTube is blocking all requests. Open YouTube in your browser and try again.")
+                sys.exit(1)
         else:
-            console.print(f"[red]Download failed:[/] {e}")
-        sys.exit(1)
+            if args.json:
+                print(json.dumps({"type": "error", "message": str(e)}), flush=True)
+            else:
+                console.print(f"[red]Download failed:[/] {e}")
+            sys.exit(1)
 
     if not args.json:
         console.print(f"\n[bold green]Saved to:[/] {args.output}")
