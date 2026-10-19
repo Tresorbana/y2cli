@@ -2,15 +2,41 @@ import os
 import yt_dlp
 import imageio_ffmpeg
 
+BROWSERS = ["chrome", "edge", "firefox", "brave", "opera", "chromium"]
+
 
 def get_ffmpeg() -> str:
     return imageio_ffmpeg.get_ffmpeg_exe()
 
 
-def fetch_info(url: str) -> dict:
+def _is_bot_error(e: Exception) -> bool:
+    msg = str(e).lower()
+    return "sign in to confirm" in msg or "not a bot" in msg
+
+
+def fetch_info(url: str, browser: str | None = None) -> dict:
     opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
+    if browser:
+        opts["cookiesfrombrowser"] = (browser, None, None, None)
     with yt_dlp.YoutubeDL(opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+
+def fetch_info_auto(url: str) -> tuple[dict, str | None]:
+    """Try without cookies, then retry with each browser until one works."""
+    try:
+        return fetch_info(url), None
+    except yt_dlp.utils.DownloadError as e:
+        if not _is_bot_error(e):
+            raise
+    for browser in BROWSERS:
+        try:
+            return fetch_info(url, browser=browser), browser
+        except Exception:
+            continue
+    raise yt_dlp.utils.DownloadError(
+        "YouTube is blocking this request. Open YouTube in your browser and try again."
+    )
 
 
 def build_formats(info: dict) -> list[dict]:
@@ -37,7 +63,8 @@ def build_formats(info: dict) -> list[dict]:
     return choices
 
 
-def download(url: str, fmt: dict, output_dir: str, progress_hook=None) -> None:
+def download(url: str, fmt: dict, output_dir: str, progress_hook=None,
+             browser: str | None = None) -> None:
     os.makedirs(output_dir, exist_ok=True)
     opts = {
         "format": fmt["format"],
@@ -47,6 +74,8 @@ def download(url: str, fmt: dict, output_dir: str, progress_hook=None) -> None:
         "noplaylist": True,
         "ffmpeg_location": get_ffmpeg(),
     }
+    if browser:
+        opts["cookiesfrombrowser"] = (browser, None, None, None)
     if progress_hook:
         opts["progress_hooks"] = [progress_hook]
     if fmt["type"] == "audio":
