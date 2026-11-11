@@ -1,0 +1,66 @@
+name: Repository integrity
+
+on:
+  push:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: read
+  statuses: write
+
+concurrency:
+  group: repository-integrity-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  integrity:
+    name: Repository integrity scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Inspect dates and source without executing repository code
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node <<'SECURITY_NODE'
+          const MAX_AGE_MS=24*60*60*1000;
+          const FUTURE_MS=5*60*1000;
+          const GUARD_PATH='.github/workflows/repository-integrity.yml';
+          function dateProblems(commit,reference){const issues=[];for(const role of ['author','committer']){const value=commit.commit?.[role]?.date;const time=Date.parse(value);if(!Number.isFinite(time))issues.push(role+' date is invalid');else if(reference-time>MAX_AGE_MS)issues.push(role+' date is more than 24 hours old');else if(time-reference>FUTURE_MS)issues.push(role+' date is more than 5 minutes in the future');}return issues;}
+          function detect(filename,content){const hits=[];
+           if(/(?:^|\/)\.vscode\/tasks\.json$/.test(filename)){try{const j=JSON.parse(content.replace(/^\uFEFF/,''));if((j.tasks||[]).some(t=>/\bnode(?:\.exe)?\b/i.test(String(t.command))&&/\.(?:orc|ttf|woff2?|eot)\b/i.test(JSON.stringify(t.args||[]))))hits.push('asset executed through Node task arguments');}catch{}}
+           if(/AUTH_API_KEY/.test(content)&&/\batob\s*\(|Buffer\.from\([^\n]+base64/.test(content))hits.push('encoded remote-code loader');
+           if(/eval\s*\(\s*proxyInfo\s*\)/.test(content))hits.push('remote response evaluated as code');
+           if(/fa-brand-400\.orc|node\s+[^\r\n"']*\.(?:woff2?|ttf|orc|eot)/.test(content))hits.push('asset executed as JavaScript');
+           if(/_\$_1e42|Tgw\(|global\[['"]!['"]\]|function\s+peel\(|splitLane\(/.test(content))hits.push('known PolinRider loader signature');
+           if(/branch_structure\.json|temp_auto_push\.bat|temp_interactive_push\.bat/.test(content))hits.push('known attacker tooling');
+           if(/\.(?:woff2?|ttf|eot|orc)$/i.test(filename)&&/^\s*(?:\(?function|['"]use strict|var\s|const\s|let\s|import\s|global\[)/.test(content.slice(0,500)))hits.push('JavaScript disguised as a font');
+           if(/[ \t]{150,}(?:\(?function|var\s+z\s*=|global\[)/.test(content)&&/parseInt|global\[/.test(content))hits.push('concealed obfuscated loader');
+           return hits;
+          }
+          async function main(){const fs=require('node:fs');const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));const token=process.env.GITHUB_TOKEN;const repo=process.env.GITHUB_REPOSITORY;const eventName=process.env.GITHUB_EVENT_NAME;if(!/^[\w.-]+\/[\w.-]+$/.test(repo||''))throw Error('Invalid repository');
+           const api=async route=>{const r=await fetch('https://api.github.com'+route,{headers:{Authorization:'Bearer '+token,Accept:'application/vnd.github+json','User-Agent':'repository-integrity-check','X-GitHub-Api-Version':'2022-11-28'},signal:AbortSignal.timeout(30000)});if(!r.ok)throw Error('GitHub API request failed: '+r.status);return r.json();};
+           const reference=Date.now();let ids=[];
+           if(eventName==='pull_request_target'){const n=event.pull_request?.number;if(!Number.isInteger(n))throw Error('Missing pull request');for(let page=1;page<=4;page++){const rows=await api('/repos/'+repo+'/pulls/'+n+'/commits?per_page=100&page='+page);ids.push(...rows.map(c=>c.sha));if(rows.length<100)break;}if(ids.length!==event.pull_request.commits)throw Error('Could not inspect every pull-request commit');}
+           else if(eventName==='push'){if(event.deleted){console.log('Deleted reference: no commits to inspect');return;}if(event.before&&!/^0+$/.test(event.before)){let total;for(let page=1;page<=20;page++){const result=await api('/repos/'+repo+'/compare/'+event.before+'...'+event.after+'?per_page=100&page='+page);total=result.total_commits;ids.push(...result.commits.map(c=>c.sha));if(ids.length>=total)break;}if(ids.length!==total)throw Error('Could not inspect every pushed commit');}else ids=(event.commits||[]).map(c=>c.id);if(ids.length>=2048)throw Error('Push too large to inspect completely');}
+           else if(eventName==='workflow_dispatch'){console.log('Manual baseline scan; existing commit dates are exempt');ids=[process.env.GITHUB_SHA];}
+           else throw Error('Unsupported event');
+           const problems=[];const seen=new Set();for(const id of ids){if(!/^[a-f0-9]{40}$/.test(id))throw Error('Invalid commit SHA');let first;const files=[];for(let page=1;page<=30;page++){const detail=await api('/repos/'+repo+'/commits/'+id+'?per_page=100&page='+page);first??=detail;files.push(...(detail.files||[]));if((detail.files||[]).length<100)break;if(page===30)throw Error('Commit exceeds complete file inspection limit');}
+           if(eventName!=='workflow_dispatch')for(const issue of dateProblems(first,reference))problems.push(id.slice(0,12)+': '+issue);
+           for(const file of files){if(file.status==='removed')continue;if(file.filename===GUARD_PATH){if(eventName==='pull_request_target')problems.push('Security workflow changes require an administrator to review and temporarily unlock its protection');continue;}
+           if(!/\.(?:[cm]?[jt]sx?|json|ya?ml|sh|ps1|bat|cmd|py|orc|woff2?|ttf|eot|env)$/i.test(file.filename)&&!/(?:^|\/)(?:init|\.env(?:\.[^/]+)?|\.gitignore)$/.test(file.filename))continue;
+           if(/(?:^|\/)(?:package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$/.test(file.filename))continue;
+           const key=file.sha+':'+file.filename;if(seen.has(key))continue;seen.add(key);if(seen.size>750)throw Error('Too many source blobs for complete inspection; split this change');
+           const blob=await api('/repos/'+repo+'/git/blobs/'+file.sha);if(blob.encoding!=='base64')throw Error('Unsupported blob encoding');if(blob.size>5*1024*1024)throw Error('Source blob exceeds inspection limit: '+file.filename);const content=Buffer.from(blob.content,'base64').toString('utf8');for(const hit of detect(file.filename,content))problems.push(id.slice(0,12)+' '+file.filename+': '+hit);
+           }}
+           if(problems.length){for(const problem of problems)console.error(problem.replace(/[\r\n]/g,' '));throw Error('Repository integrity check failed ('+problems.length+' findings)');}console.log('Verified '+ids.length+' newly submitted commits and '+seen.size+' source blobs');
+          }
+          async function run(){const fs=require('node:fs');const event=JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH,'utf8'));const kind=process.env.GITHUB_EVENT_NAME;const sha=kind==='pull_request_target'?event.pull_request?.head?.sha:kind==='push'?event.after:null;const publish=async(state,description)=>{if(!sha||/^0+$/.test(sha))return;if(!/^[a-f0-9]{40}$/.test(sha))throw Error('Invalid status SHA');const r=await fetch('https://api.github.com/repos/'+process.env.GITHUB_REPOSITORY+'/statuses/'+sha,{method:'POST',headers:{Authorization:'Bearer '+process.env.GITHUB_TOKEN,Accept:'application/vnd.github+json','User-Agent':'repository-integrity-check','X-GitHub-Api-Version':'2022-11-28'},body:JSON.stringify({state,context:'Repository integrity',description,target_url:process.env.GITHUB_SERVER_URL+'/'+process.env.GITHUB_REPOSITORY+'/actions/runs/'+process.env.GITHUB_RUN_ID}),signal:AbortSignal.timeout(30000)});if(!r.ok)throw Error('Could not publish integrity status: '+r.status);};
+           await publish('pending','Checking commit dates and malware indicators');try{await main();await publish('success','New commit dates and inspected source blobs passed');}catch(e){await publish('failure','Commit date or source integrity validation failed');throw e;}}
+          run().catch(e=>{console.error(e.message);process.exit(1);});
+          module.exports={dateProblems,detect};
+          
+          SECURITY_NODE

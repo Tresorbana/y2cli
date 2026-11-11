@@ -12,5 +12,4 @@ pip-wheel-metadata/
 *.whl
 .pytest_cache/
 .mypy_cache/
-config.bat
 node_modules
